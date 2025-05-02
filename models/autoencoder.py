@@ -2,27 +2,32 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class Autoencoder(nn.Module):
-    def __init__(self, input_size=28*28, latent_dim=20):
+    def __init__(self, input_size=3072, latent_dim=128):
         super(Autoencoder, self).__init__()
         
-        # Encoder
+        # Encoder - expanded architecture for CIFAR-10
         self.encoder = nn.Sequential(
-            nn.Linear(input_size, 400),
+            nn.Linear(input_size, 1024),
             nn.ReLU(),
-            nn.Linear(400, 200),
+            nn.Linear(1024, 512),
             nn.ReLU(),
-            nn.Linear(200, latent_dim)
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, latent_dim)
         )
         
-        # Decoder
+        # Decoder - expanded architecture for CIFAR-10
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 200),
+            nn.Linear(latent_dim, 256),
             nn.ReLU(),
-            nn.Linear(200, 400),
+            nn.Linear(256, 512),
             nn.ReLU(),
-            nn.Linear(400, input_size),
-            nn.Sigmoid()  # For MNIST pixel values in [0, 1]
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, input_size),
+            nn.Sigmoid()  # For CIFAR-10 pixel values in [0, 1]
         )
         
     def forward(self, x):

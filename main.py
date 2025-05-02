@@ -19,7 +19,7 @@ from models.classifier import SimpleClassifier
 torch.manual_seed(42)
 np.random.seed(42)
 
-def train_autoencoder(model, dataloader, num_epochs=10, device='cpu'):
+def train_autoencoder(model, dataloader, num_epochs=15, device='cpu'):
     """Train the autoencoder model"""
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
@@ -47,7 +47,7 @@ def train_autoencoder(model, dataloader, num_epochs=10, device='cpu'):
     
     print("Autoencoder training complete!")
 
-def train_classifier(model, dataloader, num_epochs=10, device='cpu'):
+def train_classifier(model, dataloader, num_epochs=15, device='cpu'):
     """Train the classifier model"""
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
@@ -397,24 +397,30 @@ def main(args):
     # Create directory for results if it doesn't exist
     os.makedirs('results', exist_ok=True)
     
-    # Load MNIST dataset
-    transform = transforms.Compose([transforms.ToTensor()])
+    # Load CIFAR-10 dataset
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
     
-    train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+    train_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
     
-    # Initialize models
-    autoencoder = Autoencoder(latent_dim=args.latent_dim).to(device)
-    classifier = SimpleClassifier().to(device)
+    # Print CIFAR-10 class names for reference
+    classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+    print(f"CIFAR-10 classes: {classes}")
     
-    # Train models
+    # Initialize models with updated input size for CIFAR-10: 32x32x3 = 3072
+    autoencoder = Autoencoder(input_size=3072, latent_dim=args.latent_dim).to(device)
+    classifier = SimpleClassifier(input_size=3072).to(device)
+    
+    # Train models - longer training for CIFAR-10
     train_autoencoder(autoencoder, train_loader, num_epochs=args.ae_epochs, device=device)
     train_classifier(classifier, train_loader, num_epochs=args.cls_epochs, device=device)
     
-    # Evaluate and analyze - Modified to enable k-means by default
+    # Evaluate and analyze
     evaluate(autoencoder, classifier, test_loader, device=device, 
              distance_metric=args.distance_metric, use_kmeans=True)
     
@@ -425,13 +431,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='AE Complexity Experiment')
     parser.add_argument('--batch-size', type=int, default=128, help='Batch size for training')
-    parser.add_argument('--ae-epochs', type=int, default=10, help='Number of epochs for autoencoder training')
-    parser.add_argument('--cls-epochs', type=int, default=8, help='Number of epochs for classifier training')
-    parser.add_argument('--latent-dim', type=int, default=20, help='Dimension of latent space')
+    parser.add_argument('--ae-epochs', type=int, default=15, help='Number of epochs for autoencoder training')
+    parser.add_argument('--cls-epochs', type=int, default=15, help='Number of epochs for classifier training')
+    parser.add_argument('--latent-dim', type=int, default=128, help='Dimension of latent space')
     parser.add_argument('--distance-metric', type=str, default='euclidean', 
                         choices=['euclidean', 'cosine'], help='Distance metric for latent space')
-    parser.add_argument('--use-kmeans', action='store_true', 
-                        help='Use K-means clustering to simulate test-time scenario without labels')
     
     args = parser.parse_args()
     main(args)

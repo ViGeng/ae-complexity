@@ -15,13 +15,17 @@ def plot_reconstructions(original_images, reconstructed_images, n=10):
     for i in range(n):
         # Original
         ax = plt.subplot(2, n, i + 1)
-        plt.imshow(original_images[i].reshape(28, 28), cmap='gray')
+        # For CIFAR-10: reshape to 32x32x3 and transpose for proper display
+        orig_img = original_images[i].reshape(3, 32, 32).transpose(1, 2, 0)
+        plt.imshow(np.clip(orig_img, 0, 1))  # Clip to valid range
         plt.title("Original")
         plt.axis('off')
         
         # Reconstructed
         ax = plt.subplot(2, n, i + 1 + n)
-        plt.imshow(reconstructed_images[i].reshape(28, 28), cmap='gray')
+        # For CIFAR-10: reshape to 32x32x3 and transpose for proper display
+        recon_img = reconstructed_images[i].reshape(3, 32, 32).transpose(1, 2, 0)
+        plt.imshow(np.clip(recon_img, 0, 1))  # Clip to valid range
         plt.title("Reconstructed")
         plt.axis('off')
     

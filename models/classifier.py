@@ -2,16 +2,21 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class SimpleClassifier(nn.Module):
-    def __init__(self, input_size=28*28, num_classes=10):
+    def __init__(self, input_size=3072, num_classes=10):
         super(SimpleClassifier, self).__init__()
         
         self.model = nn.Sequential(
-            nn.Linear(input_size, 400),
+            nn.Linear(input_size, 1024),
             nn.ReLU(),
-            nn.Linear(400, 200),
+            nn.Dropout(0.3),
+            nn.Linear(1024, 512),
             nn.ReLU(),
-            nn.Linear(200, num_classes)
+            nn.Dropout(0.3),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_classes)
         )
     
     def forward(self, x):
