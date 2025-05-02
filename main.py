@@ -1,16 +1,19 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-import numpy as np
-import matplotlib.pyplot as plt
 import argparse
 import os
 
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from scipy.spatial.distance import cdist
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+
+import utils
 from models.autoencoder import Autoencoder
 from models.classifier import SimpleClassifier
-import utils
 
 # Set random seeds for reproducibility
 torch.manual_seed(42)
@@ -81,7 +84,7 @@ def train_classifier(model, dataloader, num_epochs=10, device='cpu'):
     
     print("Classifier training complete!")
 
-def evaluate(autoencoder, classifier, dataloader, device='cpu'):
+def evaluate(autoencoder, classifier, dataloader, device='cpu', distance_metric='euclidean', use_kmeans=True):
     """Evaluate both models on the test set and analyze results"""
     autoencoder.eval()
     classifier.eval()
@@ -146,6 +149,11 @@ def evaluate(autoencoder, classifier, dataloader, device='cpu'):
         title="Latent Space - Red: Misclassified, Blue: Correct"
     )
     
+    # ----------------- RECONSTRUCTION ERROR ANALYSIS -----------------
+    print("\n" + "="*50)
+    print("RECONSTRUCTION ERROR ANALYSIS")
+    print("="*50)
+    
     # Analyze the relationship between reconstruction error and classification performance
     utils.plot_error_vs_accuracy(all_recon_errors, all_predictions, all_labels, all_confidences)
     
@@ -156,15 +164,230 @@ def evaluate(autoencoder, classifier, dataloader, device='cpu'):
     high_error = all_recon_errors > best_threshold
     low_error = ~high_error
     
-    print("\nStatistics:")
+    print("\nReconstruction Error Statistics:")
     print(f"Samples with high reconstruction error: {np.sum(high_error)} ({np.mean(high_error) * 100:.1f}%)")
     print(f"Samples with low reconstruction error: {np.sum(low_error)} ({np.mean(low_error) * 100:.1f}%)")
     print(f"Accuracy on high error samples: {np.mean(all_predictions[high_error] == all_labels[high_error]) * 100:.2f}%")
     print(f"Accuracy on low error samples: {np.mean(all_predictions[low_error] == all_labels[low_error]) * 100:.2f}%")
     
-    # Calculate correlation between reconstruction error and confidence
-    corr = np.corrcoef(all_recon_errors, all_confidences)[0, 1]
-    print(f"Correlation between reconstruction error and confidence: {corr:.4f}")
+    # ----------------- LATENT SPACE ANALYSIS WITH TRUE LABELS -----------------
+    print("\n" + "="*50)
+    print("LATENT SPACE ANALYSIS (WITH TRUE LABELS)")
+    print("="*50)
+    
+    # Compute class centroids using true labels
+    centroids = utils.compute_class_centroids(all_latents, all_labels)
+    
+    # Visualize latent space with centroids
+    utils.visualize_latent_space_with_centroids(
+        all_latents, all_labels, centroids, predictions=all_predictions,
+        title="Latent Space with Class Centroids - Red markers are misclassified samples"
+    )
+    
+    # Compute absolute distances to class centroids
+    distances = utils.compute_distances_to_centroids(all_latents, all_labels, centroids, metric=distance_metric)
+    
+    # Analyze the relationship between latent distance and classification performance
+    utils.plot_distance_vs_accuracy(distances, all_predictions, all_labels, all_confidences)
+    
+    # Analyze how well latent distance predicts misclassification
+    best_dist_threshold, _ = utils.analyze_distance_threshold(distances, all_predictions, all_labels)
+    
+    # Calculate statistics for high vs low latent distances
+    high_distance = distances > best_dist_threshold
+    low_distance = ~high_distance
+    
+    print("\nAbsolute Distance Statistics:")
+    print(f"Distance metric used: {distance_metric}")
+    print(f"Samples with high distance from class centroid: {np.sum(high_distance)} ({np.mean(high_distance) * 100:.1f}%)")
+    print(f"Samples with low distance from class centroid: {np.sum(low_distance)} ({np.mean(low_distance) * 100:.1f}%)")
+    print(f"Accuracy on high distance samples: {np.mean(all_predictions[high_distance] == all_labels[high_distance]) * 100:.2f}%")
+    print(f"Accuracy on low distance samples: {np.mean(all_predictions[low_distance] == all_labels[low_distance]) * 100:.2f}%")
+    
+    # ----------------- RELATIVE DISTANCE ANALYSIS -----------------
+    print("\n" + "="*50)
+    print("RELATIVE DISTANCE ANALYSIS")
+    print("="*50)
+    
+    # Compute relative distances (ratio of own-class to other-class distances)
+    rel_distances = utils.compute_relative_distances(all_latents, all_labels, centroids, metric=distance_metric)
+    
+    # Analyze the relationship between relative distance and classification performance
+    utils.plot_relative_distance_vs_accuracy(rel_distances, all_predictions, all_labels, all_confidences)
+    
+    # Analyze how well relative distance predicts misclassification
+    best_rel_threshold, _ = utils.analyze_relative_distance_threshold(rel_distances, all_predictions, all_labels)
+    
+    # Calculate statistics for high vs low relative distances
+    high_rel = rel_distances > best_rel_threshold
+    low_rel = ~high_rel
+    
+    print("\nRelative Distance Ratio Statistics:")
+    print(f"Samples with high relative distance ratio: {np.sum(high_rel)} ({np.mean(high_rel) * 100:.1f}%)")
+    print(f"Samples with low relative distance ratio: {np.sum(low_rel)} ({np.mean(low_rel) * 100:.1f}%)")
+    print(f"Accuracy on high relative distance samples: {np.mean(all_predictions[high_rel] == all_labels[high_rel]) * 100:.2f}%")
+    print(f"Accuracy on low relative distance samples: {np.mean(all_predictions[low_rel] == all_labels[low_rel]) * 100:.2f}%")
+    
+    # Calculate correlation between different metrics
+    error_distance_corr = np.corrcoef(all_recon_errors, distances)[0, 1]
+    error_rel_corr = np.corrcoef(all_recon_errors, rel_distances)[0, 1]
+    distance_rel_corr = np.corrcoef(distances, rel_distances)[0, 1]
+    
+    print("\nCorrelations between metrics:")
+    print(f"Reconstruction error vs. absolute distance: {error_distance_corr:.4f}")
+    print(f"Reconstruction error vs. relative distance: {error_rel_corr:.4f}")
+    print(f"Absolute distance vs. relative distance: {distance_rel_corr:.4f}")
+    
+    # ----------------- CORRELATION ANALYSIS -----------------
+    print("\n" + "="*50)
+    print("CORRELATION ANALYSIS")
+    print("="*50)
+    
+    # Convert correctness to binary (1: correct, 0: incorrect)
+    correctness = (all_predictions == all_labels).astype(int)
+    
+    # Calculate correlations
+    error_corr = np.corrcoef(all_recon_errors, correctness)[0, 1]
+    distance_corr = np.corrcoef(distances, correctness)[0, 1]
+    rel_distance_corr = np.corrcoef(rel_distances, correctness)[0, 1]
+    
+    print("\nCorrelations with classification correctness:")
+    print(f"Reconstruction error: {error_corr:.4f}")
+    print(f"Absolute distance: {distance_corr:.4f}")
+    print(f"Relative distance ratio: {rel_distance_corr:.4f}")
+    
+    # Plot correlation matrix
+    plt.figure(figsize=(10, 8))
+    corr_matrix = np.zeros((5, 5))
+    labels = ['Reconstruction Error', 'Absolute Distance', 'Relative Distance', 'Confidence', 'Correctness']
+    
+    # Fill correlation matrix
+    data_matrix = np.vstack([all_recon_errors, distances, rel_distances, all_confidences, correctness])
+    corr_matrix = np.corrcoef(data_matrix)
+    
+    # Create heatmap
+    sns.heatmap(corr_matrix, annot=True, fmt=".2f", xticklabels=labels, yticklabels=labels, cmap='coolwarm')
+    plt.title('Correlation Matrix Between Metrics and Classification Correctness')
+    plt.tight_layout()
+    plt.savefig('results/correlation_matrix.png')
+    plt.close()
+    
+    # Scatter plots of metrics vs correctness (jittered for better visualization)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    # Add small jitter to correctness for better visualization
+    jitter = np.random.normal(0, 0.05, size=len(correctness))
+    correctness_jittered = correctness + jitter
+    
+    # Plot reconstruction error vs correctness
+    axes[0].scatter(all_recon_errors, correctness_jittered, alpha=0.5)
+    axes[0].set_title(f'Reconstruction Error vs Correctness (r = {error_corr:.3f})')
+    axes[0].set_xlabel('Reconstruction Error')
+    axes[0].set_ylabel('Correctness (with jitter)')
+    
+    # Plot absolute distance vs correctness
+    axes[1].scatter(distances, correctness_jittered, alpha=0.5)
+    axes[1].set_title(f'Absolute Distance vs Correctness (r = {distance_corr:.3f})')
+    axes[1].set_xlabel('Absolute Distance')
+    
+    # Plot relative distance vs correctness
+    axes[2].scatter(rel_distances, correctness_jittered, alpha=0.5)
+    axes[2].set_title(f'Relative Distance vs Correctness (r = {rel_distance_corr:.3f})')
+    axes[2].set_xlabel('Relative Distance')
+    
+    plt.tight_layout()
+    plt.savefig('results/metrics_vs_correctness.png')
+    plt.close()
+    
+    # ----------------- K-MEANS CLUSTERING ANALYSIS -----------------
+    if use_kmeans:
+        print("\n" + "="*50)
+        print("K-MEANS CLUSTERING ANALYSIS (SIMULATING TEST-TIME SCENARIO)")
+        print("="*50)
+        
+        # Perform k-means clustering on latent vectors
+        kmeans_labels, kmeans_centroids = utils.perform_kmeans_clustering(all_latents, n_clusters=10)
+        
+        # Visualize k-means clusters vs true labels
+        utils.visualize_kmeans_vs_true(all_latents, all_labels, kmeans_labels,
+                                    title="K-Means Clusters vs. True Classes")
+        
+        # Analyze alignment between clusters and true classes
+        mapped_labels, cluster_to_class, kmeans_accuracy = utils.analyze_kmeans_accuracy(all_labels, kmeans_labels)
+        
+        print(f"K-means clustering accuracy after label mapping: {kmeans_accuracy * 100:.2f}%")
+        print("Cluster to class mapping:")
+        for cluster, class_label in cluster_to_class.items():
+            print(f"  Cluster {cluster} -> Class {class_label}")
+        
+        # Compute distances using k-means centroids
+        kmeans_distances = np.zeros(len(all_latents))
+        for i, (sample, cluster) in enumerate(zip(all_latents, kmeans_labels)):
+            sample = sample.reshape(1, -1)
+            centroid = kmeans_centroids[cluster].reshape(1, -1)
+            kmeans_distances[i] = cdist(sample, centroid, metric=distance_metric)[0, 0]
+        
+        # Compute relative distances using k-means centroids
+        kmeans_rel_distances = np.zeros(len(all_latents))
+        for i, (sample, cluster) in enumerate(zip(all_latents, kmeans_labels)):
+            sample = sample.reshape(1, -1)
+            own_centroid = kmeans_centroids[cluster].reshape(1, -1)
+            
+            # Distance to own cluster centroid
+            own_distance = cdist(sample, own_centroid, metric=distance_metric)[0, 0]
+            
+            # Distances to all other cluster centroids
+            other_centroids = np.array([kmeans_centroids[j] for j in range(len(kmeans_centroids)) if j != cluster])
+            other_distances = cdist(sample, other_centroids, metric=distance_metric)[0]
+            
+            # Use minimum distance to other clusters
+            min_other_distance = np.min(other_distances)
+            
+            # Calculate ratio
+            epsilon = 1e-10
+            kmeans_rel_distances[i] = own_distance / (min_other_distance + epsilon)
+        
+        # Analyze performance using k-means based metrics
+        print("\nK-means distance statistics:")
+        corr_kmeans_abs = np.corrcoef(distances, kmeans_distances)[0, 1]
+        corr_kmeans_rel = np.corrcoef(rel_distances, kmeans_rel_distances)[0, 1]
+        print(f"Correlation between true and k-means absolute distances: {corr_kmeans_abs:.4f}")
+        print(f"Correlation between true and k-means relative distances: {corr_kmeans_rel:.4f}")
+        
+        # Analyze how well k-means derived metrics predict misclassifications
+        best_kmeans_rel_threshold, _ = utils.analyze_relative_distance_threshold(
+            kmeans_rel_distances, all_predictions, all_labels)
+        
+        high_kmeans_rel = kmeans_rel_distances > best_kmeans_rel_threshold
+        print(f"Accuracy on samples with high k-means relative distance: {np.mean(all_predictions[high_kmeans_rel] == all_labels[high_kmeans_rel]) * 100:.2f}%")
+        print(f"Accuracy on samples with low k-means relative distance: {np.mean(all_predictions[~high_kmeans_rel] == all_labels[~high_kmeans_rel]) * 100:.2f}%")
+    
+    # ----------------- COMBINED APPROACH ANALYSIS -----------------
+    print("\n" + "="*50)
+    print("COMBINED APPROACH ANALYSIS")
+    print("="*50)
+    
+    # Identify samples with various combinations of metrics
+    high_error_high_rel = high_error & high_rel
+    
+    print("Combined metric statistics:")
+    print(f"Samples with both high error and high relative distance: {np.sum(high_error_high_rel)} ({np.mean(high_error_high_rel) * 100:.1f}%)")
+    
+    if np.sum(high_error_high_rel) > 0:
+        accuracy_combined = np.mean(all_predictions[high_error_high_rel] == all_labels[high_error_high_rel])
+        print(f"Accuracy on samples flagged by both metrics: {accuracy_combined * 100:.2f}%")
+    else:
+        print("No samples were flagged by both metrics")
+    
+    # For comparison, compute standalone metrics one more time
+    error_only_accuracy = np.mean(all_predictions[high_error] == all_labels[high_error])
+    rel_only_accuracy = np.mean(all_predictions[high_rel] == all_labels[high_rel])
+    
+    print("\nComparison of different approaches:")
+    print(f"Using high reconstruction error only: {error_only_accuracy * 100:.2f}% accuracy")
+    print(f"Using high relative distance only: {rel_only_accuracy * 100:.2f}% accuracy")
+    if np.sum(high_error_high_rel) > 0:
+        print(f"Using both metrics combined: {accuracy_combined * 100:.2f}% accuracy")
 
 def main(args):
     # Set device
@@ -191,8 +414,9 @@ def main(args):
     train_autoencoder(autoencoder, train_loader, num_epochs=args.ae_epochs, device=device)
     train_classifier(classifier, train_loader, num_epochs=args.cls_epochs, device=device)
     
-    # Evaluate and analyze
-    evaluate(autoencoder, classifier, test_loader, device=device)
+    # Evaluate and analyze - Modified to enable k-means by default
+    evaluate(autoencoder, classifier, test_loader, device=device, 
+             distance_metric=args.distance_metric, use_kmeans=True)
     
     # Save models
     torch.save(autoencoder.state_dict(), 'models/autoencoder.pth')
@@ -204,6 +428,10 @@ if __name__ == "__main__":
     parser.add_argument('--ae-epochs', type=int, default=10, help='Number of epochs for autoencoder training')
     parser.add_argument('--cls-epochs', type=int, default=8, help='Number of epochs for classifier training')
     parser.add_argument('--latent-dim', type=int, default=20, help='Dimension of latent space')
+    parser.add_argument('--distance-metric', type=str, default='euclidean', 
+                        choices=['euclidean', 'cosine'], help='Distance metric for latent space')
+    parser.add_argument('--use-kmeans', action='store_true', 
+                        help='Use K-means clustering to simulate test-time scenario without labels')
     
     args = parser.parse_args()
     main(args)
